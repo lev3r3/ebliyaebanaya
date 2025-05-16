@@ -1,0 +1,2286 @@
+import mysql.connector
+from mysql.connector import Error
+from datetime import datetime
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+
+
+class LoginWindow:
+    def __init__(self, root, on_login_success):
+        self.root = root
+        self.on_login_success = on_login_success
+        self.window = tk.Toplevel(root)
+        self.window.title("Авторизация")
+        self.window.geometry("300x200")
+        
+        ttk.Label(self.window, text="Логин:").pack(pady=5)
+        self.username_entry = ttk.Entry(self.window)
+        self.username_entry.pack(pady=5)
+        
+        ttk.Label(self.window, text="Пароль:").pack(pady=5)
+        self.password_entry = ttk.Entry(self.window, show="*")
+        self.password_entry.pack(pady=5)
+        
+        ttk.Button(self.window, text="Войти", command=self.authenticate).pack(pady=10)
+        
+        # Список пользователей (в реальном приложении это должно храниться в БД)
+        self.users = {
+            "Владелец": {"password": "password", "role": "owner"},
+            "Администратор": {"password": "password", "role": "admin"}
+        }
+    
+    def authenticate(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        
+        if username in self.users and self.users[username]["password"] == password:
+            self.on_login_success(self.users[username]["role"])
+            self.window.destroy()
+        else:
+            messagebox.showerror("Ошибка", "Неверный логин или пароль")
+
+
+class FlowerShopApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("PolarFlowers - Управление цветочным магазином")
+        self.root.geometry("1200x800")
+        
+        # Подключение к базе данных
+        self.db = self.connect_to_db()
+        
+        # Создание вкладок
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        self.current_user_role = None
+        self.show_login_window()
+    
+    def show_login_window(self):
+        self.login_window = LoginWindow(self.root, self.on_login_success)
+    
+    def on_login_success(self, role):
+        self.current_user_role = role
+        self.initialize_app()
+    
+        
+        # Вкладки
+        if self.current_user_role == "admin":
+             # Новая вкладка
+        # Обновление данных при запуске
+            self.update_clients_list()
+            self.update_products_list()
+            self.update_services_list()
+            self.update_orders_list()
+        else:
+            raise ValueError()
+    
+    def connect_to_db(self):
+        try:
+            connection = mysql.connector.connect(
+                host='localhost',
+                user='root',
+                password='0000',
+                database='PolarFlowers51'
+            )
+            return connection
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось подключиться к базе данных: {e}")
+            return None
+        
+    
+    def initialize_app(self):
+    # Подключение к базе данных
+        try:
+            self.db = mysql.connector.connect(
+                host='localhost',
+                user='root',
+                password='0000',
+                database='PolarFlowers51'
+            )
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось подключиться к базе данных: {e}")
+            return
+        
+        # Создание вкладок
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # В зависимости от роли показываем разные вкладки
+        if self.current_user_role == "admin":
+            # Вкладки для администратора
+            self.create_clients_tab()
+            self.create_products_tab()
+            self.create_services_tab()
+            self.create_orders_tab()
+            self.create_sales_tab()
+            self.create_suppliers_tab()
+            self.create_supplier_orders_tab()
+            
+        elif self.current_user_role == "owner":
+            # Вкладки для владельца (все вкладки + отчеты)
+            self.create_clients_tab()
+            self.create_products_tab()
+            self.create_services_tab()
+            self.create_orders_tab()
+            self.create_sales_tab()
+            self.create_reports_tab()  # Только владелец видит отчеты
+            self.create_suppliers_tab()
+            self.create_supplier_orders_tab()
+        
+        # Обновление данных при запуске
+        if self.current_user_role in ["admin", "owner"]:
+            self.update_clients_list()
+            self.update_products_list()
+            self.update_services_list()
+            self.update_orders_list()
+            self.update_sales_data()
+            self.update_suppliers_list()
+            self.update_supplier_orders_list()
+            
+            if self.current_user_role == "owner":
+                self.update_reports()
+
+    
+    
+
+    
+    # Клиенты
+    def create_clients_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Клиенты")
+        
+        # Панель управления
+        control_frame = ttk.Frame(tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Добавить клиента", command=self.add_client_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Добавить телефон", command=self.add_phone_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить список", command=self.update_clients_list).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Удалить клиента", command=self.delete_client).pack(side=tk.LEFT, padx=5)
+        
+        # Таблица клиентов
+        self.clients_tree = ttk.Treeview(tab, columns=("ID", "Name", "Email", "Phones"), show="headings")
+        self.clients_tree.heading("ID", text="ID")
+        self.clients_tree.heading("Name", text="ФИО")
+        self.clients_tree.heading("Email", text="Email")
+        self.clients_tree.heading("Phones", text="Телефоны")
+        
+        # Скрываем колонку ID
+        self.clients_tree.column("ID", width=0, stretch=tk.NO)
+        
+        self.clients_tree.column("Name", width=200)
+        self.clients_tree.column("Email", width=200)
+        self.clients_tree.column("Phones", width=150)
+        
+        
+        
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=self.clients_tree.yview)
+        self.clients_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.clients_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Контекстное меню
+        self.clients_menu = tk.Menu(self.root, tearoff=0)
+        self.clients_menu.add_command(label="Показать покупки", command=self.show_client_purchases)
+        self.clients_menu.add_command(label="Удалить клиента", command=self.delete_client)
+        self.clients_tree.bind("<Button-3>", self.show_clients_context_menu)
+    
+    def delete_client(self):
+        selected = self.clients_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите клиента для удаления")
+            return
+        
+        client_id = self.clients_tree.item(selected)['values'][0]
+        client_name = self.clients_tree.item(selected)['values'][1]
+        
+        if not messagebox.askyesno("Подтверждение", f"Вы уверены, что хотите удалить клиента {client_name}?"):
+            return
+        
+        try:
+            cursor = self.db.cursor()
+            
+            # Удаляем связанные записи из таблицы Номер_телефона_клиента
+            cursor.execute("DELETE FROM Номер_телефона_клиента WHERE Код_клиента = %s", (client_id,))
+            
+            # Удаляем связанные записи из таблицы Товар_клиента
+            cursor.execute("DELETE FROM Товар_клиента WHERE Код_клиента = %s", (client_id,))
+            
+            # Удаляем связанные записи из таблицы Услуга_клиенту
+            cursor.execute("DELETE FROM Услуга_клиенту WHERE Код_клиента = %s", (client_id,))
+            
+            # Удаляем связанные записи из таблицы Предзаказ
+            cursor.execute("DELETE FROM Предзаказ WHERE Код_клиента = %s", (client_id,))
+            
+            # Удаляем самого клиента
+            cursor.execute("DELETE FROM Клиент WHERE Код_клиента = %s", (client_id,))
+            
+            self.db.commit()
+            messagebox.showinfo("Успех", "Клиент успешно удален!")
+            self.update_clients_list()
+        except Error as e:
+            self.db.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось удалить клиента: {e}")
+    
+    def add_client_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить клиента")
+        dialog.geometry("400x200")
+        
+        ttk.Label(dialog, text="ФИО:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        name_entry = ttk.Entry(dialog, width=40)
+        name_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Email:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        email_entry = ttk.Entry(dialog, width=40)
+        email_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Телефон:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        phone_entry = ttk.Entry(dialog, width=40)
+        phone_entry.grid(row=2, column=1, padx=5, pady=5)
+        
+        def save_client():
+            name = name_entry.get()
+            email = email_entry.get()
+            phone = phone_entry.get()
+            
+            if not name:
+                messagebox.showerror("Ошибка", "Необходимо указать ФИО клиента")
+                return
+            
+            try:
+                cursor = self.db.cursor()
+                query = "INSERT INTO Клиент (ФИО, Почта) VALUES (%s, %s)"
+                cursor.execute(query, (name, email))
+                client_id = cursor.lastrowid
+                
+                if phone:
+                    query = "INSERT INTO Номер_телефона_клиента (Код_клиента, Номер_телефона) VALUES (%s, %s)"
+                    cursor.execute(query, (client_id, phone))
+                
+                self.db.commit()
+                messagebox.showinfo("Успех", "Клиент успешно добавлен")
+                self.update_clients_list()
+                dialog.destroy()
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось добавить клиента: {e}")
+        
+        ttk.Button(dialog, text="Сохранить", command=save_client).grid(row=3, column=1, padx=5, pady=5, sticky=tk.E)
+    
+    def add_phone_dialog(self):
+        selected = self.clients_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите клиента из списка")
+            return
+        
+        client_id = self.clients_tree.item(selected)['values'][0]
+        
+        phone = simpledialog.askstring("Добавить телефон", "Введите номер телефона:")
+        if phone:
+            try:
+                cursor = self.db.cursor()
+                query = "INSERT INTO Номер_телефона_клиента (Код_клиента, Номер_телефона) VALUES (%s, %s)"
+                cursor.execute(query, (client_id, phone))
+                self.db.commit()
+                messagebox.showinfo("Успех", "Телефон успешно добавлен")
+                self.update_clients_list()
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось добавить телефон: {e}")
+    
+    def update_clients_list(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = """
+            SELECT c.Код_клиента, c.ФИО, c.Почта, 
+                   GROUP_CONCAT(p.Номер_телефона SEPARATOR ', ') AS Телефоны
+            FROM Клиент c
+            LEFT JOIN Номер_телефона_клиента p ON c.Код_клиента = p.Код_клиента
+            GROUP BY c.Код_клиента
+            """
+            cursor.execute(query)
+            
+            # Очистка таблицы
+            for item in self.clients_tree.get_children():
+                self.clients_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.clients_tree.insert("", tk.END, values=(
+                    row['Код_клиента'],
+                    row['ФИО'],
+                    row['Почта'],
+                    row['Телефоны'] or "-"
+                ))
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список клиентов: {e}")
+    
+    def show_clients_context_menu(self, event):
+        item = self.clients_tree.identify_row(event.y)
+        if item:
+            self.clients_tree.selection_set(item)
+            self.clients_menu.post(event.x_root, event.y_root)
+    
+    def show_client_purchases(self):
+        selected = self.clients_tree.focus()
+        if not selected:
+            return
+        
+        client_id = self.clients_tree.item(selected)['values'][0]
+        client_name = self.clients_tree.item(selected)['values'][1]
+        
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            
+            # Получаем покупки товаров
+            query = """
+            SELECT t.Наименование, tc.Дата_продажи, 
+                   tc.Цена_продажи, tc.Количество, 
+                   (tc.Цена_продажи * tc.Количество) AS Сумма
+            FROM Товар_клиента tc
+            JOIN Товар t ON tc.Код_товара = t.Код_товара
+            WHERE tc.Код_клиента = %s
+            ORDER BY tc.Дата_продажи DESC
+            """
+            cursor.execute(query, (client_id,))
+            products = cursor.fetchall()
+            
+            # Получаем оказанные услуги
+            query = """
+            SELECT u.Название, uc.Дата_оказания, 
+                   u.Цена, uc.Количество, 
+                   (u.Цена * uc.Количество) AS Сумма
+            FROM Услуга_клиенту uc
+            JOIN Услуга u ON uc.Код_услуги = u.Код_услуги
+            WHERE uc.Код_клиента = %s
+            ORDER BY uc.Дата_оказания DESC
+            """
+            cursor.execute(query, (client_id,))
+            services = cursor.fetchall()
+            
+            # Создаем окно с результатами
+            dialog = tk.Toplevel(self.root)
+            dialog.title(f"Покупки клиента: {client_name}")
+            dialog.geometry("800x600")
+            
+            notebook = ttk.Notebook(dialog)
+            notebook.pack(fill=tk.BOTH, expand=True)
+            
+            # Вкладка с товарами
+            products_frame = ttk.Frame(notebook)
+            notebook.add(products_frame, text="Товары")
+            
+            tree = ttk.Treeview(products_frame, columns=("Name", "Date", "Price", "Qty", "Sum"), show="headings")
+            tree.heading("Name", text="Товар")
+            tree.heading("Date", text="Дата")
+            tree.heading("Price", text="Цена")
+            tree.heading("Qty", text="Кол-во")
+            tree.heading("Sum", text="Сумма")
+            
+            
+            for col in tree["columns"]:
+                tree.column(col, width=120, anchor=tk.CENTER)
+            
+            scrollbar = ttk.Scrollbar(products_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            for product in products:
+                tree.insert("", tk.END, values=(
+                    product['Наименование'],
+                    product['Дата_продажи'],
+                    product['Цена_продажи'],
+                    product['Количество'],
+                    product['Сумма']
+                ))
+            
+            # Вкладка с услугами
+            services_frame = ttk.Frame(notebook)
+            notebook.add(services_frame, text="Услуги")
+            
+            tree = ttk.Treeview(services_frame, columns=("Name", "Date", "Price", "Qty", "Sum"), show="headings")
+            tree.heading("Name", text="Услуга")
+            tree.heading("Date", text="Дата")
+            tree.heading("Price", text="Цена")
+            tree.heading("Qty", text="Кол-во")
+            tree.heading("Sum", text="Сумма")
+            
+            for col in tree["columns"]:
+                tree.column(col, width=120, anchor=tk.CENTER)
+            
+            scrollbar = ttk.Scrollbar(services_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            for service in services:
+                tree.insert("", tk.END, values=(
+                    service['Название'],
+                    service['Дата_оказания'],
+                    service['Цена'],
+                    service['Количество'],
+                    service['Сумма']
+                ))
+            
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить данные: {e}")
+
+    # Товары
+    def create_products_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Товары")
+        
+        # Панель управления
+        control_frame = ttk.Frame(tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Добавить товар", command=self.add_product_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить список", command=self.update_products_list).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Удалить товар", command=self.delete_product).pack(side=tk.LEFT, padx=5)
+        
+        # Таблица товаров (ID скрыта)
+        self.products_tree = ttk.Treeview(tab, columns=("ID", "Name", "Price", "Category", "Qty", "Discount"), show="headings")
+        self.products_tree.heading("Name", text="Наименование")
+        self.products_tree.heading("Price", text="Цена")
+        self.products_tree.heading("Category", text="Категория")
+        self.products_tree.heading("Qty", text="Кол-во")
+        self.products_tree.heading("Discount", text="Скидка")
+        
+        # Скрываем колонку ID
+        self.products_tree.column("ID", width=0, stretch=tk.NO)
+        
+        self.products_tree.column("Name", width=200)
+        self.products_tree.column("Price", width=80)
+        self.products_tree.column("Category", width=120)
+        self.products_tree.column("Qty", width=60)
+        self.products_tree.column("Discount", width=100)
+        
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=self.products_tree.yview)
+        self.products_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.products_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Контекстное меню
+        self.products_menu = tk.Menu(self.root, tearoff=0)
+        self.products_menu.add_command(label="Продать товар", command=self.sell_product_dialog)
+        self.products_menu.add_command(label="Удалить товар", command=self.delete_product)
+        self.products_tree.bind("<Button-3>", self.show_products_context_menu)
+    
+    def add_product_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить товар")
+        dialog.geometry("400x300")
+        
+        ttk.Label(dialog, text="Наименование:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        name_entry = ttk.Entry(dialog, width=30)
+        name_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Цена:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        price_entry = ttk.Entry(dialog, width=30)
+        price_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Категория:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        category_entry = ttk.Entry(dialog, width=30)
+        category_entry.grid(row=2, column=1, padx=5, pady=5)
+        category_entry.insert(0, "Цветы")
+        
+        ttk.Label(dialog, text="Количество:").grid(row=3, column=0, padx=5, pady=5, sticky=tk.E)
+        qty_entry = ttk.Entry(dialog, width=30)
+        qty_entry.grid(row=3, column=1, padx=5, pady=5)
+        qty_entry.insert(0, "0")
+        
+        ttk.Label(dialog, text="Скидка (%):").grid(row=4, column=0, padx=5, pady=5, sticky=tk.E)
+        discount_entry = ttk.Entry(dialog, width=30)
+        discount_entry.grid(row=4, column=1, padx=5, pady=5)
+        discount_entry.insert(0, "0")
+        
+        def save_product():
+            name = name_entry.get()
+            price = price_entry.get()
+            category = category_entry.get()
+            qty = qty_entry.get()
+            discount = discount_entry.get()
+            
+            if not name or not price:
+                messagebox.showerror("Ошибка", "Необходимо указать наименование и цену")
+                return
+            
+            try:
+                price = float(price)
+                qty = int(qty)
+                discount = float(discount) if discount else 0
+                
+                # Получаем ID скидки, если процент указан
+                discount_id = None
+                if discount > 0:
+                    cursor = self.db.cursor()
+                    query = "SELECT Код_скидки FROM Скидка WHERE Процент = %s LIMIT 1"
+                    cursor.execute(query, (discount,))
+                    result = cursor.fetchone()
+                    if result:
+                        discount_id = result[0]
+                
+                query = """
+                INSERT INTO Товар (Наименование, Цена, Категория, Количество, Код_скидки) 
+                VALUES (%s, %s, %s, %s, %s)
+                """
+                cursor.execute(query, (name, price, category, qty, discount_id))
+                self.db.commit()
+                messagebox.showinfo("Успех", "Товар успешно добавлен")
+                self.update_products_list()
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Ошибка", "Некорректные числовые значения")
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось добавить товар: {e}")
+        
+        ttk.Button(dialog, text="Сохранить", command=save_product).grid(row=5, column=1, padx=5, pady=5, sticky=tk.E)
+    
+    def delete_product(self):
+        selected = self.products_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите товар для удаления")
+            return
+        
+        product_id = self.products_tree.item(selected)['values'][0]
+        product_name = self.products_tree.item(selected)['values'][1]
+        
+        if not messagebox.askyesno("Подтверждение", f"Вы уверены, что хотите удалить товар '{product_name}'?"):
+            return
+        
+        try:
+            cursor = self.db.cursor()
+            
+            # Удаляем связанные записи из таблицы Товар_клиента
+            cursor.execute("DELETE FROM Товар_клиента WHERE Код_товара = %s", (product_id,))
+            
+            # Удаляем связанные записи из таблицы Товар_в_предзаказе
+            cursor.execute("DELETE FROM Товар_в_предзаказе WHERE Код_товара = %s", (product_id,))
+            
+            # Удаляем связанные записи из таблицы Товар_поставщик
+            cursor.execute("DELETE FROM Товар_поставщик WHERE Код_товара = %s", (product_id,))
+            
+            # Удаляем сам товар
+            cursor.execute("DELETE FROM Товар WHERE Код_товара = %s", (product_id,))
+            
+            self.db.commit()
+            messagebox.showinfo("Успех", "Товар успешно удален")
+            self.update_products_list()
+        except Error as e:
+            self.db.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось удалить товар: {e}")
+    
+    def update_products_list(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = """
+            SELECT t.Код_товара, t.Наименование, t.Цена, t.Категория, t.Количество, 
+                   IFNULL(s.Процент, 0) AS Скидка
+            FROM Товар t
+            LEFT JOIN Скидка s ON t.Код_скидки = s.Код_скидки
+            """
+            cursor.execute(query)
+            
+            # Очистка таблицы
+            for item in self.products_tree.get_children():
+                self.products_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                discount = f"{row['Скидка']}%" if row['Скидка'] else "-"
+                self.products_tree.insert("", tk.END, values=(
+                    row['Код_товара'],
+                    row['Наименование'],
+                    row['Цена'],
+                    row['Категория'],
+                    row['Количество'],
+                    discount
+                ))
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список товаров: {e}")
+    
+    def show_products_context_menu(self, event):
+        item = self.products_tree.identify_row(event.y)
+        if item:
+            self.products_tree.selection_set(item)
+            self.products_menu.post(event.x_root, event.y_root)
+    
+    def sell_product_dialog(self):
+        selected = self.products_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите товар из списка")
+            return
+        
+        product_id = self.products_tree.item(selected)['values'][0]
+        product_name = self.products_tree.item(selected)['values'][1]
+        price = self.products_tree.item(selected)['values'][2]
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Продажа товара: {product_name}")
+        dialog.geometry("400x200")
+        
+        ttk.Label(dialog, text="Клиент:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        
+        # Выбор клиента
+        client_var = tk.StringVar()
+        clients = self.get_clients_for_combobox()
+        client_combobox = ttk.Combobox(dialog, textvariable=client_var, values=clients, state="readonly")
+        client_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Количество:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        qty_entry = ttk.Entry(dialog)
+        qty_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        qty_entry.insert(0, "1")
+        
+        ttk.Label(dialog, text="Цена:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        price_entry = ttk.Entry(dialog)
+        price_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+        price_entry.insert(0, str(price))
+        
+        def sell_product():
+            client = client_var.get()
+            if not client:
+                messagebox.showerror("Ошибка", "Выберите клиента")
+                return
+            
+            try:
+                client_id = int(client.split(":")[0])
+                quantity = int(qty_entry.get())
+                sale_price = float(price_entry.get())
+                
+                if quantity <= 0:
+                    messagebox.showerror("Ошибка", "Количество должно быть больше 0")
+                    return
+                
+                cursor = self.db.cursor()
+                query = """
+                INSERT INTO Товар_клиента 
+                (Код_клиента, Код_товара, Дата_продажи, Цена_продажи, Количество) 
+                VALUES (%s, %s, %s, %s, %s)
+                """
+                sale_date = datetime.now().date()
+                cursor.execute(query, (client_id, product_id, sale_date, sale_price, quantity))
+                self.db.commit()
+                messagebox.showinfo("Успех", "Продажа зарегистрирована")
+                self.update_products_list()
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Ошибка", "Некорректные числовые значения")
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось зарегистрировать продажу: {e}")
+        
+        ttk.Button(dialog, text="Зарегистрировать продажу", command=sell_product).grid(row=3, column=1, padx=5, pady=5, sticky=tk.E)
+
+    # Услуги
+    def create_services_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Услуги")
+        
+        # Панель управления
+        control_frame = ttk.Frame(tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Добавить услугу", command=self.add_service_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить список", command=self.update_services_list).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Удалить услугу", command=self.delete_service).pack(side=tk.LEFT, padx=5)
+        
+        # Таблица услуг
+       
+        self.services_tree = ttk.Treeview(tab, columns=("ID", "Name", "Price", "Description"), show="headings")
+        self.services_tree.heading("Name", text="Название")
+        self.services_tree.heading("Price", text="Цена")
+        self.services_tree.heading("Description", text="Описание")
+       
+        # Скрываем колонку ID
+        self.services_tree.column("ID", width=0, stretch=tk.NO)
+
+        self.services_tree.column("Name", width=200)
+        self.services_tree.column("Price", width=100)
+        self.services_tree.column("Description", width=400)
+
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=self.services_tree.yview)
+        self.services_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.services_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Контекстное меню
+        self.services_menu = tk.Menu(self.root, tearoff=0)
+        self.services_menu.add_command(label="Оказать услугу", command=self.provide_service_dialog)
+        self.services_menu.add_command(label="Удалить услугу", command=self.delete_service)
+        self.services_tree.bind("<Button-3>", self.show_services_context_menu)
+    
+    def add_service_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить услугу")
+        dialog.geometry("500x300")
+        
+        ttk.Label(dialog, text="Название:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        name_entry = ttk.Entry(dialog, width=50)
+        name_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Цена:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        price_entry = ttk.Entry(dialog, width=50)
+        price_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Описание:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.NE)
+        desc_entry = tk.Text(dialog, width=50, height=10)
+        desc_entry.grid(row=2, column=1, padx=5, pady=5)
+        
+        def save_service():
+            name = name_entry.get()
+            price = price_entry.get()
+            description = desc_entry.get("1.0", tk.END).strip()
+            
+            if not name or not price:
+                messagebox.showerror("Ошибка", "Необходимо указать название и цену")
+                return
+            
+            try:
+                price = float(price)
+                
+                cursor = self.db.cursor()
+                query = "INSERT INTO Услуга (Название, Цена, Описание) VALUES (%s, %s, %s)"
+                cursor.execute(query, (name, price, description))
+                self.db.commit()
+                messagebox.showinfo("Успех", "Услуга успешно добавлена")
+                self.update_services_list()
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Ошибка", "Некорректное значение цены")
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось добавить услугу: {e}")
+        
+        ttk.Button(dialog, text="Сохранить", command=save_service).grid(row=3, column=1, padx=5, pady=5, sticky=tk.E)
+    
+    def delete_service(self):
+        selected = self.services_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите услугу для удаления")
+            return
+        
+        service_id = self.services_tree.item(selected)['values'][0]
+        service_name = self.services_tree.item(selected)['values'][1]
+        
+        if not messagebox.askyesno("Подтверждение", f"Вы уверены, что хотите удалить услугу '{service_name}'?"):
+            return
+        
+        try:
+            cursor = self.db.cursor()
+            
+            # Удаляем связанные записи из таблицы Услуга_клиенту
+            cursor.execute("DELETE FROM Услуга_клиенту WHERE Код_услуги = %s", (service_id,))
+            
+            # Удаляем связанные записи из таблицы Услуга_в_предзаказе
+            cursor.execute("DELETE FROM Услуга_в_предзаказе WHERE Код_услуги = %s", (service_id,))
+            
+            # Удаляем саму услугу
+            cursor.execute("DELETE FROM Услуга WHERE Код_услуги = %s", (service_id,))
+            
+            self.db.commit()
+            messagebox.showinfo("Успех", "Услуга успешно удалена")
+            self.update_services_list()
+        except Error as e:
+            self.db.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось удалить услугу: {e}")
+    
+    def update_services_list(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = "SELECT * FROM Услуга"
+            cursor.execute(query)
+            
+            # Очистка таблицы
+            for item in self.services_tree.get_children():
+                self.services_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.services_tree.insert("", tk.END, values=(
+                    row['Код_услуги'],
+                    row['Название'],
+                    row['Цена'],
+                    row['Описание'] or "-"
+                ))
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список услуг: {e}")
+    
+    def show_services_context_menu(self, event):
+        item = self.services_tree.identify_row(event.y)
+        if item:
+            self.services_tree.selection_set(item)
+            self.services_menu.post(event.x_root, event.y_root)
+    
+    def provide_service_dialog(self):
+        selected = self.services_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите услугу из списка")
+            return
+        
+        service_id = self.services_tree.item(selected)['values'][0]
+        service_name = self.services_tree.item(selected)['values'][1]
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Оказание услуги: {service_name}")
+        dialog.geometry("400x200")
+        
+        ttk.Label(dialog, text="Клиент:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        
+        # Выбор клиента
+        client_var = tk.StringVar()
+        clients = self.get_clients_for_combobox()
+        client_combobox = ttk.Combobox(dialog, textvariable=client_var, values=clients, state="readonly")
+        client_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        ttk.Label(dialog, text="Количество:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        qty_entry = ttk.Entry(dialog)
+        qty_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        qty_entry.insert(0, "1")
+        
+        def provide_service():
+            client = client_var.get()
+            if not client:
+                messagebox.showerror("Ошибка", "Выберите клиента")
+                return
+            
+            try:
+                client_id = int(client.split(":")[0])
+                quantity = int(qty_entry.get())
+                
+                if quantity <= 0:
+                    messagebox.showerror("Ошибка", "Количество должно быть больше 0")
+                    return
+                
+                cursor = self.db.cursor()
+                query = """
+                INSERT INTO Услуга_клиенту 
+                (Код_клиента, Код_услуги, Дата_оказания, Количество) 
+                VALUES (%s, %s, %s, %s)
+                """
+                service_date = datetime.now().date()
+                cursor.execute(query, (client_id, service_id, service_date, quantity))
+                self.db.commit()
+                messagebox.showinfo("Успех", "Услуга зарегистрирована")
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Ошибка", "Некорректные числовые значения")
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось зарегистрировать услугу: {e}")
+        
+        ttk.Button(dialog, text="Зарегистрировать услугу", command=provide_service).grid(row=2, column=1, padx=5, pady=5, sticky=tk.E)
+
+    # Заказы
+    def create_orders_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Предзаказы")
+        
+        # Панель управления
+        control_frame = ttk.Frame(tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Создать заказ", command=self.create_order_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить список", command=self.update_orders_list).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Удалить заказ", command=self.delete_order).pack(side=tk.LEFT, padx=5)
+        
+        # Таблица заказов
+        self.orders_tree = ttk.Treeview(tab, columns=("ID", "Client", "Date", "Status", "Delivery", "Total"), show="headings")
+        self.orders_tree.heading("ID", text="ID")
+        self.orders_tree.heading("Client", text="Клиент")
+        self.orders_tree.heading("Date", text="Дата оформления")
+        self.orders_tree.heading("Status", text="Статус")
+        self.orders_tree.heading("Delivery", text="Дата доставки")
+        self.orders_tree.heading("Total", text="Сумма")
+        
+        
+        self.orders_tree.column("ID", width=0, stretch=tk.NO)
+        self.orders_tree.column("Client", width=200)
+        self.orders_tree.column("Date", width=150)
+        self.orders_tree.column("Status", width=100)
+        self.orders_tree.column("Delivery", width=100)
+        self.orders_tree.column("Total", width=100)
+        
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=self.orders_tree.yview)
+        self.orders_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.orders_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Контекстное меню
+        self.orders_menu = tk.Menu(self.root, tearoff=0)
+        self.orders_menu.add_command(label="Просмотреть детали", command=self.show_order_details)
+        self.orders_menu.add_command(label="Изменить статус", command=self.change_order_status)
+        self.orders_menu.add_command(label="Удалить заказ", command=self.delete_order)
+        self.orders_tree.bind("<Button-3>", self.show_orders_context_menu)
+    
+    def delete_order(self):
+        selected = self.orders_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите заказ для удаления")
+            return
+        
+        order_id = self.orders_tree.item(selected)['values'][0]
+        
+        if not messagebox.askyesno("Подтверждение", f"Вы уверены, что хотите удалить заказ #{order_id}?"):
+            return
+        
+        try:
+            cursor = self.db.cursor()
+            
+            # Удаляем связанные записи из таблицы Товар_в_предзаказе
+            cursor.execute("DELETE FROM Товар_в_предзаказе WHERE Код_предзаказа = %s", (order_id,))
+            
+            # Удаляем связанные записи из таблицы Услуга_в_предзаказе
+            cursor.execute("DELETE FROM Услуга_в_предзаказе WHERE Код_предзаказа = %s", (order_id,))
+            
+            # Удаляем сам заказ
+            cursor.execute("DELETE FROM Предзаказ WHERE Код_предзаказа = %s", (order_id,))
+            
+            self.db.commit()
+            messagebox.showinfo("Успех", "Заказ успешно удален")
+            self.update_orders_list()
+        except Error as e:
+            self.db.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось удалить заказ: {e}")
+    
+    def create_order_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Создать заказ")
+        dialog.geometry("800x600")
+        
+        # Выбор клиента
+        ttk.Label(dialog, text="Клиент:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        
+        client_var = tk.StringVar()
+        clients = self.get_clients_for_combobox()
+        client_combobox = ttk.Combobox(dialog, textvariable=client_var, values=clients, state="readonly")
+        client_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        # Дата доставки
+        ttk.Label(dialog, text="Дата доставки:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        delivery_entry = ttk.Entry(dialog)
+        delivery_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        delivery_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        
+        # Статус
+        ttk.Label(dialog, text="Статус:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        status_var = tk.StringVar(value="Новый")
+        status_combobox = ttk.Combobox(dialog, textvariable=status_var, 
+                                      values=["Новый", "В обработке", "Доставка", "Выполнен", "Отменен"], 
+                                      state="readonly")
+        status_combobox.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        # Товары и услуги
+        ttk.Label(dialog, text="Товары:").grid(row=3, column=0, padx=5, pady=5, sticky=tk.NE)
+        
+        products_frame = ttk.Frame(dialog)
+        products_frame.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        self.order_products_tree = ttk.Treeview(products_frame, columns=("ID", "Name", "Price", "Qty"), show="headings", height=5)
+        self.order_products_tree.heading("ID", text="ID")
+        self.order_products_tree.heading("Name", text="Наименование")
+        self.order_products_tree.heading("Price", text="Цена")
+        self.order_products_tree.heading("Qty", text="Кол-во")
+        
+        scrollbar = ttk.Scrollbar(products_frame, orient="vertical", command=self.order_products_tree.yview)
+        self.order_products_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.order_products_tree.pack(side=tk.LEFT)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        ttk.Button(dialog, text="Добавить товар", command=lambda: self.add_item_to_order("product")).grid(row=3, column=2, padx=5, pady=5)
+        ttk.Button(dialog, text="Удалить товар", command=self.remove_product_from_order).grid(row=3, column=3, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Услуги:").grid(row=4, column=0, padx=5, pady=5, sticky=tk.NE)
+        
+        services_frame = ttk.Frame(dialog)
+        services_frame.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        self.order_services_tree = ttk.Treeview(services_frame, columns=("ID", "Name", "Price", "Qty"), show="headings", height=5)
+        self.order_services_tree.heading("ID", text="ID")
+        self.order_services_tree.heading("Name", text="Название")
+        self.order_services_tree.heading("Price", text="Цена")
+        self.order_services_tree.heading("Qty", text="Кол-во")
+        
+        scrollbar = ttk.Scrollbar(services_frame, orient="vertical", command=self.order_services_tree.yview)
+        self.order_services_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.order_services_tree.pack(side=tk.LEFT)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        ttk.Button(dialog, text="Добавить услугу", command=lambda: self.add_item_to_order("service")).grid(row=4, column=2, padx=5, pady=5)
+        ttk.Button(dialog, text="Удалить услугу", command=self.remove_service_from_order).grid(row=4, column=3, padx=5, pady=5)
+        
+        # Итоговая сумма
+        self.order_total_var = tk.StringVar(value="0.00")
+        ttk.Label(dialog, text="Итого:").grid(row=5, column=0, padx=5, pady=5, sticky=tk.E)
+        ttk.Label(dialog, textvariable=self.order_total_var).grid(row=5, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        def save_order():
+            client = client_var.get()
+            if not client:
+                messagebox.showerror("Ошибка", "Выберите клиента")
+                return
+            
+            client_id = int(client.split(":")[0])
+            delivery_date = delivery_entry.get()
+            status = status_var.get()
+            
+            # Проверяем, есть ли товары или услуги в заказе
+            if not self.order_products_tree.get_children() and not self.order_services_tree.get_children():
+                messagebox.showerror("Ошибка", "Добавьте хотя бы один товар или услугу")
+                return
+            
+            try:
+                cursor = self.db.cursor()
+                
+                # Создаем заказ
+                query = """
+                INSERT INTO Предзаказ 
+                (Код_клиента, Дата_доставки, Статус, Общая_стоимость) 
+                VALUES (%s, %s, %s, %s)
+                """
+                total = float(self.order_total_var.get())
+                cursor.execute(query, (client_id, delivery_date, status, total))
+                order_id = cursor.lastrowid
+                
+                # Добавляем товары
+                for item in self.order_products_tree.get_children():
+                    values = self.order_products_tree.item(item)['values']
+                    product_id = values[0]
+                    quantity = values[3]
+                    
+                    query = "INSERT INTO Товар_в_предзаказе (Код_предзаказа, Код_товара, Количество) VALUES (%s, %s, %s)"
+                    cursor.execute(query, (order_id, product_id, quantity))
+                
+                # Добавляем услуги
+                for item in self.order_services_tree.get_children():
+                    values = self.order_services_tree.item(item)['values']
+                    service_id = values[0]
+                    quantity = values[3]
+                    
+                    query = "INSERT INTO Услуга_в_предзаказе (Код_предзаказа, Код_услуги, Количество) VALUES (%s, %s, %s)"
+                    cursor.execute(query, (order_id, service_id, quantity))
+                
+                self.db.commit()
+                messagebox.showinfo("Успех", f"Заказ #{order_id} успешно создан")
+                self.update_orders_list()
+                dialog.destroy()
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось создать заказ: {e}")
+        
+        ttk.Button(dialog, text="Сохранить заказ", command=save_order).grid(row=6, column=1, padx=5, pady=5, sticky=tk.E)
+    
+    def add_item_to_order(self, item_type):
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Добавить {item_type}")
+        dialog.geometry("600x400")
+        
+        if item_type == "product":
+            # Таблица товаров
+            tree = ttk.Treeview(dialog, columns=("ID", "Name", "Price", "Category", "Qty"), show="headings")
+            tree.heading("ID", text="ID")
+            tree.heading("Name", text="Наименование")
+            tree.heading("Price", text="Цена")
+            tree.heading("Category", text="Категория")
+            tree.heading("Qty", text="Доступно")
+            
+            try:
+                cursor = self.db.cursor(dictionary=True)
+                query = "SELECT * FROM Товар WHERE Количество > 0"
+                cursor.execute(query)
+                
+                for row in cursor.fetchall():
+                    tree.insert("", tk.END, values=(
+                        row['Код_товара'],
+                        row['Наименование'],
+                        row['Цена'],
+                        row['Категория'],
+                        row['Количество']
+                    ))
+            except Error as e:
+                messagebox.showerror("Ошибка", f"Не удалось загрузить товары: {e}")
+                dialog.destroy()
+                return
+        else:
+            # Таблица услуг
+            tree = ttk.Treeview(dialog, columns=("ID", "Name", "Price", "Description"), show="headings")
+            tree.heading("ID", text="ID")
+            tree.heading("Name", text="Название")
+            tree.heading("Price", text="Цена")
+            tree.heading("Description", text="Описание")
+            
+            try:
+                cursor = self.db.cursor(dictionary=True)
+                query = "SELECT * FROM Услуга"
+                cursor.execute(query)
+                
+                for row in cursor.fetchall():
+                    tree.insert("", tk.END, values=(
+                        row['Код_услуги'],
+                        row['Название'],
+                        row['Цена'],
+                        row['Описание'] or "-"
+                    ))
+            except Error as e:
+                messagebox.showerror("Ошибка", f"Не удалось загрузить услуги: {e}")
+                dialog.destroy()
+                return
+        
+        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        ttk.Label(dialog, text="Количество:").pack(padx=5, pady=5)
+        qty_entry = ttk.Entry(dialog)
+        qty_entry.pack(padx=5, pady=5)
+        qty_entry.insert(0, "1")
+        
+        def add_selected_item():
+            selected = tree.focus()
+            if not selected:
+                messagebox.showwarning("Предупреждение", "Выберите товар/услугу из списка")
+                return
+            
+            try:
+                quantity = int(qty_entry.get())
+                if quantity <= 0:
+                    messagebox.showerror("Ошибка", "Количество должно быть больше 0")
+                    return
+                
+                values = tree.item(selected)['values']
+                
+                if item_type == "product":
+                    # Проверяем доступное количество
+                    available_qty = values[4]
+                    if quantity > available_qty:
+                        messagebox.showerror("Ошибка", f"Недостаточно товара. Доступно: {available_qty}")
+                        return
+                    
+                    # Добавляем в таблицу товаров заказа
+                    self.order_products_tree.insert("", tk.END, values=(
+                        values[0], values[1], values[2], quantity
+                    ))
+                else:
+                    # Добавляем в таблицу услуг заказа
+                    self.order_services_tree.insert("", tk.END, values=(
+                        values[0], values[1], values[2], quantity
+                    ))
+                
+                # Обновляем итоговую сумму
+                self.calculate_order_total()
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Ошибка", "Некорректное количество")
+        
+        ttk.Button(dialog, text="Добавить", command=add_selected_item).pack(padx=5, pady=5)
+    
+    def remove_product_from_order(self):
+        selected = self.order_products_tree.focus()
+        if selected:
+            self.order_products_tree.delete(selected)
+            self.calculate_order_total()
+    
+    def remove_service_from_order(self):
+        selected = self.order_services_tree.focus()
+        if selected:
+            self.order_services_tree.delete(selected)
+            self.calculate_order_total()
+    
+    
+    def calculate_order_total(self):
+        total = 0.0
+        
+        # Суммируем товары
+        for item in self.order_products_tree.get_children():
+            values = self.order_products_tree.item(item)['values']
+            try:
+                price = float(values[2]) if isinstance(values[2], str) else values[2]
+                quantity = int(values[3]) if isinstance(values[3], str) else values[3]
+                total += price * quantity
+            except (ValueError, TypeError, IndexError) as e:
+                messagebox.showerror("Ошибка", f"Некорректные данные товара: {e}")
+                continue
+        
+        # Суммируем услуги
+        for item in self.order_services_tree.get_children():
+            values = self.order_services_tree.item(item)['values']
+            try:
+                price = float(values[2]) if isinstance(values[2], str) else values[2]
+                quantity = int(values[3]) if isinstance(values[3], str) else values[3]
+                total += price * quantity
+            except (ValueError, TypeError, IndexError) as e:
+                messagebox.showerror("Ошибка", f"Некорректные данные услуги: {e}")
+                continue
+        
+        self.order_total_var.set(f"{total:.2f}")
+    def update_orders_list(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = """
+            SELECT p.Код_предзаказа, c.ФИО AS Клиент, 
+                   p.Дата_оформления, p.Статус, 
+                   p.Дата_доставки, p.Общая_стоимость
+            FROM Предзаказ p
+            JOIN Клиент c ON p.Код_клиента = c.Код_клиента
+            ORDER BY p.Дата_оформления DESC
+            """
+            cursor.execute(query)
+            
+            # Очистка таблицы
+            for item in self.orders_tree.get_children():
+                self.orders_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.orders_tree.insert("", tk.END, values=(
+                    row['Код_предзаказа'],
+                    row['Клиент'],
+                    row['Дата_оформления'],
+                    row['Статус'],
+                    row['Дата_доставки'] or "-",
+                    row['Общая_стоимость']
+                ))
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список заказов: {e}")
+    
+    def show_orders_context_menu(self, event):
+        item = self.orders_tree.identify_row(event.y)
+        if item:
+            self.orders_tree.selection_set(item)
+            self.orders_menu.post(event.x_root, event.y_root)
+    
+    def show_order_details(self):
+        selected = self.orders_tree.focus()
+        if not selected:
+            return
+        
+        order_id = self.orders_tree.item(selected)['values'][0]
+        
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            
+            # Получаем основную информацию о заказе
+            query = """
+            SELECT p.*, c.ФИО AS Клиент 
+            FROM Предзаказ p
+            JOIN Клиент c ON p.Код_клиента = c.Код_клиента
+            WHERE p.Код_предзаказа = %s
+            """
+            cursor.execute(query, (order_id,))
+            order = cursor.fetchone()
+            
+            if not order:
+                messagebox.showerror("Ошибка", "Заказ не найден")
+                return
+            
+            # Получаем товары в заказе
+            query = """
+            SELECT t.Код_товара, t.Наименование, tp.Количество, t.Цена, 
+                   (t.Цена * tp.Количество) AS Сумма
+            FROM Товар_в_предзаказе tp
+            JOIN Товар t ON tp.Код_товара = t.Код_товара
+            WHERE tp.Код_предзаказа = %s
+            """
+            cursor.execute(query, (order_id,))
+            products = cursor.fetchall()
+            
+            # Получаем услуги в заказе
+            query = """
+            SELECT u.Код_услуги, u.Название, up.Количество, u.Цена, 
+                   (u.Цена * up.Количество) AS Сумма
+            FROM Услуга_в_предзаказе up
+            JOIN Услуга u ON up.Код_услуги = u.Код_услуги
+            WHERE up.Код_предзаказа = %s
+            """
+            cursor.execute(query, (order_id,))
+            services = cursor.fetchall()
+            
+            # Создаем окно с деталями заказа
+            dialog = tk.Toplevel(self.root)
+            dialog.title(f"Детали заказа #{order_id}")
+            dialog.geometry("800x600")
+            
+            # Основная информация
+            info_frame = ttk.Frame(dialog)
+            info_frame.pack(fill=tk.X, padx=5, pady=5)
+            
+            ttk.Label(info_frame, text=f"Клиент: {order['Клиент']}").pack(anchor=tk.W)
+            ttk.Label(info_frame, text=f"Дата оформления: {order['Дата_оформления']}").pack(anchor=tk.W)
+            ttk.Label(info_frame, text=f"Статус: {order['Статус']}").pack(anchor=tk.W)
+            ttk.Label(info_frame, text=f"Дата доставки: {order['Дата_доставки'] or 'Не указана'}").pack(anchor=tk.W)
+            ttk.Label(info_frame, text=f"Общая стоимость: {order['Общая_стоимость']}").pack(anchor=tk.W)
+            
+            # Товары
+            ttk.Label(dialog, text="Товары:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=5, pady=5)
+            
+            tree = ttk.Treeview(dialog, columns=("ID", "Name", "Price", "Qty", "Sum"), show="headings")
+            tree.heading("ID", text="ID")
+            tree.heading("Name", text="Наименование")
+            tree.heading("Price", text="Цена")
+            tree.heading("Qty", text="Кол-во")
+            tree.heading("Sum", text="Сумма")
+            
+            scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            for product in products:
+                tree.insert("", tk.END, values=(
+                    product['Код_товара'],
+                    product['Наименование'],
+                    product['Цена'],
+                    product['Количество'],
+                    product['Сумма']
+                ))
+            
+            # Услуги
+            ttk.Label(dialog, text="Услуги:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=5, pady=5)
+            
+            tree = ttk.Treeview(dialog, columns=("ID", "Name", "Price", "Qty", "Sum"), show="headings")
+            tree.heading("ID", text="ID")
+            tree.heading("Name", text="Название")
+            tree.heading("Price", text="Цена")
+            tree.heading("Qty", text="Кол-во")
+            tree.heading("Sum", text="Сумма")
+            
+            scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            for service in services:
+                tree.insert("", tk.END, values=(
+                    service['Код_услуги'],
+                    service['Название'],
+                    service['Цена'],
+                    service['Количество'],
+                    service['Сумма']
+                ))
+            
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить детали заказа: {e}")
+    
+    def change_order_status(self):
+        selected = self.orders_tree.focus()
+        if not selected:
+            return
+        
+        order_id = self.orders_tree.item(selected)['values'][0]
+        current_status = self.orders_tree.item(selected)['values'][3]
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Изменить статус заказа #{order_id}")
+        dialog.geometry("300x150")
+        
+        ttk.Label(dialog, text="Текущий статус:").pack(padx=5, pady=5)
+        ttk.Label(dialog, text=current_status, font=('Arial', 10, 'bold')).pack(padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Новый статус:").pack(padx=5, pady=5)
+        
+        status_var = tk.StringVar(value=current_status)
+        status_combobox = ttk.Combobox(dialog, textvariable=status_var, 
+                                      values=["Новый", "В обработке", "Доставка", "Выполнен", "Отменен"], 
+                                      state="readonly")
+        status_combobox.pack(padx=5, pady=5)
+        
+        def update_status():
+            new_status = status_var.get()
+            if new_status == current_status:
+                messagebox.showinfo("Информация", "Статус не изменен")
+                dialog.destroy()
+                return
+            
+            try:
+                cursor = self.db.cursor()
+                query = "UPDATE Предзаказ SET Статус = %s WHERE Код_предзаказа = %s"
+                cursor.execute(query, (new_status, order_id))
+                self.db.commit()
+                messagebox.showinfo("Успех", "Статус заказа обновлен")
+                self.update_orders_list()
+                dialog.destroy()
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось изменить статус: {e}")
+        
+        ttk.Button(dialog, text="Сохранить", command=update_status).pack(padx=5, pady=5)
+
+        # Продажи
+    def create_sales_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Продажи")
+        
+        # Панель управления
+        control_frame = ttk.Frame(tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Продать товар", command=self.sell_product_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Оказать услугу", command=self.provide_service_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Удалить запись", command=self.delete_sale_record).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить данные", command=self.update_sales_data).pack(side=tk.LEFT, padx=5)
+        
+        # Таблицы продаж
+        notebook = ttk.Notebook(tab)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Товары
+        products_frame = ttk.Frame(notebook)
+        notebook.add(products_frame, text="Товары")
+        
+        self.sales_products_tree = ttk.Treeview(products_frame, columns=("ID", "Date", "Client", "Product", "Price", "Qty", "Sum"), show="headings")
+        self.sales_products_tree.heading("ID", text="ID", anchor=tk.CENTER)
+        self.sales_products_tree.heading("Date", text="Дата")
+        self.sales_products_tree.heading("Client", text="Клиент")
+        self.sales_products_tree.heading("Product", text="Товар")
+        self.sales_products_tree.heading("Price", text="Цена")
+        self.sales_products_tree.heading("Qty", text="Кол-во")
+        self.sales_products_tree.heading("Sum", text="Сумма")
+        
+        self.sales_products_tree.column("ID", width=0, stretch=tk.NO)
+        scrollbar = ttk.Scrollbar(products_frame, orient="vertical", command=self.sales_products_tree.yview)
+        self.sales_products_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.sales_products_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Услуги
+        services_frame = ttk.Frame(notebook)
+        notebook.add(services_frame, text="Услуги")
+        
+        self.sales_services_tree = ttk.Treeview(services_frame, columns=("ID", "Date", "Client", "Service", "Price", "Qty", "Sum"), show="headings")
+        self.sales_services_tree.heading("ID", text="ID", anchor=tk.CENTER)
+        self.sales_services_tree.heading("Date", text="Дата")
+        self.sales_services_tree.heading("Client", text="Клиент")
+        self.sales_services_tree.heading("Service", text="Услуга")
+        self.sales_services_tree.heading("Price", text="Цена")
+        self.sales_services_tree.heading("Qty", text="Кол-во")
+        self.sales_services_tree.heading("Sum", text="Сумма")
+        
+
+        self.sales_services_tree.column("ID", width=0, stretch=tk.NO)
+
+        scrollbar = ttk.Scrollbar(services_frame, orient="vertical", command=self.sales_services_tree.yview)
+        self.sales_services_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.sales_services_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Контекстное меню
+        self.sales_menu = tk.Menu(self.root, tearoff=0)
+        self.sales_menu.add_command(label="Удалить запись", command=self.delete_sale_record)
+        
+        self.sales_products_tree.bind("<Button-3>", self.show_sales_context_menu)
+        self.sales_services_tree.bind("<Button-3>", self.show_sales_context_menu)
+        
+        # Обновляем данные при открытии вкладки
+        self.update_sales_data()
+    
+    def show_sales_context_menu(self, event):
+        # Определяем, какое дерево было кликнуто
+        widget = event.widget
+        item = widget.identify_row(event.y)
+        
+        if item:
+            widget.selection_set(item)
+            self.sales_menu.post(event.x_root, event.y_root)
+    
+    def delete_sale_record(self):
+    # Определяем, какое дерево было активно (товары или услуги)
+        active_tree = None
+        if len(self.sales_products_tree.selection()) > 0:
+            tree = self.sales_products_tree
+            table_name = "Товар_клиента"
+            item_type = "товара"
+        elif len(self.sales_services_tree.selection()) > 0:
+            tree = self.sales_services_tree
+            table_name = "Услуга_клиенту"
+            item_type = "услуги"
+        else:
+            messagebox.showwarning("Предупреждение", "Выберите запись для удаления во вкладке 'Товары' или 'Услуги'")
+            return
+
+        selected = tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите запись для удаления")
+            return
+
+        # Получаем данные из выбранной строки
+        values = tree.item(selected)['values']
+        if len(values) < 4:  # Проверяем, что есть все необходимые значения
+            messagebox.showerror("Ошибка", "Некорректные данные записи")
+            return
+
+        record_id = values[0]
+        record_date = values[1]
+        client_name = values[2]
+        item_name = values[3]
+
+        if not messagebox.askyesno("Подтверждение", 
+                                f"Вы уверены, что хотите удалить запись от {record_date}\n"
+                                f"Клиент: {client_name}\n"
+                                f"{'Товар' if table_name == 'Товар_клиента' else 'Услуга'}: {item_name}?"):
+            return
+
+        try:
+            cursor = self.db.cursor()
+            
+            # ID записи состоит из Код_клиента-Код_товара/услуги
+            ids = record_id.split('-')
+            if len(ids) != 2:
+                raise ValueError("Некорректный ID записи")
+            
+            client_id = ids[0]
+            item_id = ids[1]
+            
+            if table_name == "Товар_клиента":
+                # Для товаров нужно также вернуть количество на склад
+                # Получаем количество из удаляемой записи
+                query = f"""
+                SELECT Количество, Цена_продажи 
+                FROM {table_name} 
+                WHERE Код_клиента = %s AND Код_товара = %s AND Дата_продажи = %s
+                """
+                cursor.execute(query, (client_id, item_id, record_date))
+                result = cursor.fetchone()
+                
+                if result:
+                    quantity = result[0]
+                    sale_price = result[1]
+                    # Возвращаем товар на склад
+                    update_query = "UPDATE Товар SET Количество = Количество + %s WHERE Код_товара = %s"
+                    cursor.execute(update_query, (quantity, item_id))
+            
+            # Удаляем запись о продаже
+            query = f"""
+            DELETE FROM {table_name} 
+            WHERE Код_клиента = %s 
+            AND {'Код_товара' if table_name == 'Товар_клиента' else 'Код_услуги'} = %s 
+            AND {'Дата_продажи' if table_name == 'Товар_клиента' else 'Дата_оказания'} = %s
+            """
+            cursor.execute(query, (client_id, item_id, record_date))
+            
+            self.db.commit()
+            messagebox.showinfo("Успех", "Запись о продаже успешно удалена")
+            self.update_sales_data()
+        except Error as e:
+            self.db.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось удалить запись: {e}")
+        except ValueError as e:
+            messagebox.showerror("Ошибка", str(e))
+
+    
+
+    def update_sales_data(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            
+            # Продажи товаров
+            query = """
+            SELECT tc.Код_клиента, tc.Код_товара, tc.Дата_продажи, 
+                   tc.Цена_продажи, tc.Количество, 
+                   (tc.Цена_продажи * tc.Количество) AS Сумма,
+                   c.ФИО AS Клиент, t.Наименование AS Товар
+            FROM Товар_клиента tc
+            JOIN Клиент c ON tc.Код_клиента = c.Код_клиента
+            JOIN Товар t ON tc.Код_товара = t.Код_товара
+            ORDER BY tc.Дата_продажи DESC
+            """
+            cursor.execute(query)
+            
+            # Очистка таблицы
+            for item in self.sales_products_tree.get_children():
+                self.sales_products_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.sales_products_tree.insert("", tk.END, values=(
+                    f"{row['Код_клиента']}-{row['Код_товара']}",
+                    row['Дата_продажи'],
+                    row['Клиент'],
+                    row['Товар'],
+                    row['Цена_продажи'],
+                    row['Количество'],
+                    row['Сумма']
+                ))
+            
+            # Оказанные услуги
+            query = """
+            SELECT uc.Код_клиента, uc.Код_услуги, uc.Дата_оказания, 
+                   u.Цена, uc.Количество, 
+                   (u.Цена * uc.Количество) AS Сумма,
+                   c.ФИО AS Клиент, u.Название AS Услуга
+            FROM Услуга_клиенту uc
+            JOIN Клиент c ON uc.Код_клиента = c.Код_клиента
+            JOIN Услуга u ON uc.Код_услуги = u.Код_услуги
+            ORDER BY uc.Дата_оказания DESC
+            """
+            cursor.execute(query)
+            
+            # Очистка таблицы
+            for item in self.sales_services_tree.get_children():
+                self.sales_services_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.sales_services_tree.insert("", tk.END, values=(
+                    f"{row['Код_клиента']}-{row['Код_услуги']}",
+                    row['Дата_оказания'],
+                    row['Клиент'],
+                    row['Услуга'],
+                    row['Цена'],
+                    row['Количество'],
+                    row['Сумма']
+                ))
+                
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить данные о продажах: {e}")
+
+    
+
+     
+    def create_reports_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Отчеты")
+        
+        # Панель управления
+        control_frame = ttk.Frame(tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Обновить отчеты", command=self.update_reports).pack(side=tk.LEFT, padx=5)
+        
+        # Выбор периода
+        period_frame = ttk.Frame(tab)
+        period_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(period_frame, text="Период с:").pack(side=tk.LEFT, padx=5)
+        self.start_date_entry = ttk.Entry(period_frame, width=10)
+        self.start_date_entry.pack(side=tk.LEFT, padx=5)
+        self.start_date_entry.insert(0, datetime.now().strftime("%Y-%m-01"))
+        
+        ttk.Label(period_frame, text="по:").pack(side=tk.LEFT, padx=5)
+        self.end_date_entry = ttk.Entry(period_frame, width=10)
+        self.end_date_entry.pack(side=tk.LEFT, padx=5)
+        self.end_date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        
+        # Тип отчета
+        report_frame = ttk.Frame(tab)
+        report_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(report_frame, text="Тип отчета:").pack(side=tk.LEFT, padx=5)
+        self.report_type_var = tk.StringVar(value="monthly")
+        ttk.Radiobutton(report_frame, text="По месяцам", variable=self.report_type_var, value="monthly").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(report_frame, text="По дням", variable=self.report_type_var, value="daily").pack(side=tk.LEFT, padx=5)
+        
+        # Прибыль
+        ttk.Label(tab, text="Финансовый отчет:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, padx=5, pady=5)
+        
+        self.profit_tree = ttk.Treeview(tab, columns=("Period", "Income", "Expenses", "Profit"), show="headings")
+        self.profit_tree.heading("Period", text="Период")
+        self.profit_tree.heading("Income", text="Доход")
+        self.profit_tree.heading("Expenses", text="Расход")
+        self.profit_tree.heading("Profit", text="Прибыль")
+        
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=self.profit_tree.yview)
+        self.profit_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.profit_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Топ товаров и услуг
+        notebook = ttk.Notebook(tab)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Топ товаров
+        products_frame = ttk.Frame(notebook)
+        notebook.add(products_frame, text="Топ товаров")
+        
+        self.top_products_tree = ttk.Treeview(products_frame, columns=("Product", "Sales", "Revenue"), show="headings")
+        self.top_products_tree.heading("Product", text="Товар")
+        self.top_products_tree.heading("Sales", text="Продано")
+        self.top_products_tree.heading("Revenue", text="Выручка")
+        
+        scrollbar = ttk.Scrollbar(products_frame, orient="vertical", command=self.top_products_tree.yview)
+        self.top_products_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.top_products_tree.pack(fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Топ услуг
+        services_frame = ttk.Frame(notebook)
+        notebook.add(services_frame, text="Топ услуг")
+        
+        self.top_services_tree = ttk.Treeview(services_frame, columns=("Service", "Sales", "Revenue"), show="headings")
+        self.top_services_tree.heading("Service", text="Услуга")
+        self.top_services_tree.heading("Sales", text="Оказано")
+        self.top_services_tree.heading("Revenue", text="Выручка")
+        
+        scrollbar = ttk.Scrollbar(services_frame, orient="vertical", command=self.top_services_tree.yview)
+        self.top_services_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.top_services_tree.pack(fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Обновляем отчеты при открытии
+        self.update_reports()
+    
+    def show_suppliers_context_menu(self, event):
+        item = self.suppliers_tree.identify_row(event.y)
+        if item:
+            self.suppliers_tree.selection_set(item)
+            self.suppliers_menu.post(event.x_root, event.y_root)
+
+    def show_supplier_orders(self):
+        selected = self.suppliers_tree.focus()
+        if not selected:
+            return
+        
+        supplier_id = self.suppliers_tree.item(selected)['values'][0]
+        supplier_name = self.suppliers_tree.item(selected)['values'][1]
+        
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = """
+            SELECT t.Наименование AS Товар, tp.Цена_закупки AS Цена, 
+                tp.Количество, (tp.Цена_закупки * tp.Количество) AS Сумма
+            FROM Товар_поставщик tp
+            JOIN Товар t ON tp.Код_товара = t.Код_товара
+            WHERE tp.Код_поставщика = %s
+            ORDER BY t.Наименование
+            """
+            cursor.execute(query, (supplier_id,))
+            orders = cursor.fetchall()
+            
+            dialog = tk.Toplevel(self.root)
+            dialog.title(f"Заказы у поставщика: {supplier_name}")
+            dialog.geometry("600x400")
+            
+            tree = ttk.Treeview(dialog, columns=("Product", "Price", "Qty", "Sum"), show="headings")
+            tree.heading("Product", text="Товар")
+            tree.heading("Price", text="Цена")
+            tree.heading("Qty", text="Кол-во")
+            tree.heading("Sum", text="Сумма")
+            
+            scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            for order in orders:
+                tree.insert("", tk.END, values=(
+                    order['Товар'],
+                    order['Цена'],
+                    order['Количество'],
+                    order['Сумма']
+                ))
+                
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить заказы: {e}")
+
+    def add_supplier_phone_dialog(self):
+        selected = self.suppliers_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите поставщика из списка")
+            return
+        
+        supplier_id = self.suppliers_tree.item(selected)['values'][0]
+        supplier_name = self.suppliers_tree.item(selected)['values'][1]
+        
+        phone = simpledialog.askstring("Добавить телефон", f"Введите номер телефона для поставщика {supplier_name}:")
+        if phone:
+            try:
+                cursor = self.db.cursor()
+                query = "INSERT INTO Номер_телефона_поставщика (Код_поставщика, Номер_телефона) VALUES (%s, %s)"
+                cursor.execute(query, (supplier_id, phone))
+                self.db.commit()
+                messagebox.showinfo("Успех", "Телефон успешно добавлен")
+                self.update_suppliers_list()
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось добавить телефон: {e}")
+
+    def create_suppliers_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Поставщики")
+        
+        # Панель управления
+        control_frame = ttk.Frame(tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Добавить поставщика", command=self.add_supplier_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить список", command=self.update_suppliers_list).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Удалить поставщика", command=self.delete_supplier).pack(side=tk.LEFT, padx=5)
+        
+        # Таблица поставщиков
+        self.suppliers_tree = ttk.Treeview(tab, columns=("ID", "Name", "Address", "Phones"), show="headings")
+        self.suppliers_tree.heading("ID", text="ID")
+        self.suppliers_tree.heading("Name", text="Название")
+        self.suppliers_tree.heading("Address", text="Адрес")
+        self.suppliers_tree.heading("Phones", text="Телефоны")
+
+
+        self.suppliers_tree.column("ID", width=0, stretch=tk.NO)
+        
+        self.suppliers_tree.column("Name", width=200)
+        self.suppliers_tree.column("Address", width=250)
+        self.suppliers_tree.column("Phones", width=150)
+        
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=self.suppliers_tree.yview)
+        self.suppliers_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.suppliers_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Контекстное меню
+        self.suppliers_menu = tk.Menu(self.root, tearoff=0)
+        self.suppliers_menu.add_command(label="Добавить телефон", command=self.add_supplier_phone_dialog)
+        self.suppliers_menu.add_command(label="Показать заказы", command=self.show_supplier_orders)
+        self.suppliers_menu.add_command(label="Удалить поставщика", command=self.delete_supplier)
+        self.suppliers_tree.bind("<Button-3>", self.show_suppliers_context_menu)
+        
+        self.update_suppliers_list()
+    def create_supplier_orders_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Поставки")
+        
+        # Панель управления
+        control_frame = ttk.Frame(tab)
+        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(control_frame, text="Создать заказ", command=self.create_supplier_order_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Обновить список", command=self.update_supplier_orders_list).pack(side=tk.LEFT, padx=5)
+        #ttk.Button(control_frame, text="Удалить заказ", command=self.delete_supplier_order).pack(side=tk.LEFT, padx=5)
+        
+        # Таблица заказов поставщикам
+        self.supplier_orders_tree = ttk.Treeview(tab, columns=("ID", "Supplier", "Product", "Qty", "Price", "Date", "Status"), show="headings")
+        self.supplier_orders_tree.heading("ID", text="ID")
+        self.supplier_orders_tree.heading("Supplier", text="Поставщик")
+        self.supplier_orders_tree.heading("Product", text="Товар")
+        self.supplier_orders_tree.heading("Qty", text="Кол-во")
+        self.supplier_orders_tree.heading("Price", text="Цена")
+        self.supplier_orders_tree.heading("Date", text="Дата")
+        self.supplier_orders_tree.heading("Status", text="Статус")
+        
+        for col in ("ID", "Qty", "Price"):
+            self.supplier_orders_tree.column(col, width=60, anchor=tk.CENTER)
+        for col in ("Supplier", "Product"):
+            self.supplier_orders_tree.column(col, width=150)
+        self.supplier_orders_tree.column("Date", width=100)
+        self.supplier_orders_tree.column("Status", width=100)
+        self.supplier_orders_tree.column("ID", width=0, stretch=tk.NO)
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=self.supplier_orders_tree.yview)
+        self.supplier_orders_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.supplier_orders_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Контекстное меню
+        self.supplier_orders_menu = tk.Menu(self.root, tearoff=0)
+        #self.supplier_orders_menu.add_command(label="Изменить статус", command=self.change_supplier_order_status)
+        #self.supplier_orders_menu.add_command(label="Удалить заказ", command=self.delete_supplier_order)
+        #self.supplier_orders_tree.bind("<Button-3>", self.show_supplier_orders_context_menu)
+    
+        self.update_supplier_orders_list()
+
+    def add_supplier_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Добавить поставщика")
+        dialog.geometry("400x200")
+        
+        ttk.Label(dialog, text="Название:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        name_entry = ttk.Entry(dialog, width=30)
+        name_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Адрес:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        address_entry = ttk.Entry(dialog, width=30)
+        address_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(dialog, text="Телефон:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        phone_entry = ttk.Entry(dialog, width=30)
+        phone_entry.grid(row=2, column=1, padx=5, pady=5)
+        
+        def save_supplier():
+            name = name_entry.get()
+            address = address_entry.get()
+            phone = phone_entry.get()
+            
+            if not name:
+                messagebox.showerror("Ошибка", "Необходимо указать название поставщика")
+                return
+            
+            try:
+                cursor = self.db.cursor()
+                query = "INSERT INTO Поставщик (Наименование, Адрес) VALUES (%s, %s)"
+                cursor.execute(query, (name, address))
+                supplier_id = cursor.lastrowid
+                
+                if phone:
+                    query = "INSERT INTO Номер_телефона_поставщика (Код_поставщика, Номер_телефона) VALUES (%s, %s)"
+                    cursor.execute(query, (supplier_id, phone))
+                
+                self.db.commit()
+                messagebox.showinfo("Успех", "Поставщик успешно добавлен")
+                self.update_suppliers_list()
+                dialog.destroy()
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось добавить поставщика: {e}")
+        
+        ttk.Button(dialog, text="Сохранить", command=save_supplier).grid(row=3, column=1, padx=5, pady=5, sticky=tk.E)
+
+    def update_suppliers_list(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = """
+            SELECT p.Код_поставщика, p.Наименование, p.Адрес, 
+                GROUP_CONCAT(ph.Номер_телефона SEPARATOR ', ') AS Телефоны
+            FROM Поставщик p
+            LEFT JOIN Номер_телефона_поставщика ph ON p.Код_поставщика = ph.Код_поставщика
+            GROUP BY p.Код_поставщика
+            """
+            cursor.execute(query)
+            
+            # Очистка таблицы
+            for item in self.suppliers_tree.get_children():
+                self.suppliers_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.suppliers_tree.insert("", tk.END, values=(
+                    row['Код_поставщика'],
+                    row['Наименование'],
+                    row['Адрес'] or "-",
+                    row['Телефоны'] or "-"
+                ))
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список поставщиков: {e}")
+
+    def delete_supplier(self):
+        selected = self.suppliers_tree.focus()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите поставщика для удаления")
+            return
+        
+        supplier_id = self.suppliers_tree.item(selected)['values'][0]
+        supplier_name = self.suppliers_tree.item(selected)['values'][1]
+        
+        if not messagebox.askyesno("Подтверждение", f"Вы уверены, что хотите удалить поставщика {supplier_name}?"):
+            return
+        
+        try:
+            cursor = self.db.cursor()
+            
+            # Удаляем связанные записи из таблицы Номер_телефона_поставщика
+            cursor.execute("DELETE FROM Номер_телефона_поставщика WHERE Код_поставщика = %s", (supplier_id,))
+            
+            # Удаляем связанные записи из таблицы Товар_поставщик
+            cursor.execute("DELETE FROM Товар_поставщик WHERE Код_поставщика = %s", (supplier_id,))
+            
+            # Удаляем самого поставщика
+            cursor.execute("DELETE FROM Поставщик WHERE Код_поставщика = %s", (supplier_id,))
+            
+            self.db.commit()
+            messagebox.showinfo("Успех", "Поставщик успешно удален")
+            self.update_suppliers_list()
+            self.update_supplier_orders_list()
+        except Error as e:
+            self.db.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось удалить поставщика: {e}")
+
+    def create_supplier_order_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Создать заказ поставщику")
+        dialog.geometry("600x400")
+        
+        # Выбор поставщика
+        ttk.Label(dialog, text="Поставщик:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.E)
+        
+        supplier_var = tk.StringVar()
+        suppliers = self.get_suppliers_for_combobox()
+        supplier_combobox = ttk.Combobox(dialog, textvariable=supplier_var, values=suppliers, state="readonly")
+        supplier_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        # Выбор товара
+        ttk.Label(dialog, text="Товар:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.E)
+        
+        product_var = tk.StringVar()
+        products = self.get_products_for_combobox()
+        product_combobox = ttk.Combobox(dialog, textvariable=product_var, values=products, state="readonly")
+        product_combobox.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        # Количество
+        ttk.Label(dialog, text="Количество:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.E)
+        qty_entry = ttk.Entry(dialog)
+        qty_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+        qty_entry.insert(0, "1")
+        
+        # Цена закупки
+        ttk.Label(dialog, text="Цена закупки:").grid(row=3, column=0, padx=5, pady=5, sticky=tk.E)
+        price_entry = ttk.Entry(dialog)
+        price_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        # Дата поставки
+        ttk.Label(dialog, text="Дата поставки:").grid(row=4, column=0, padx=5, pady=5, sticky=tk.E)
+        delivery_entry = ttk.Entry(dialog)
+        delivery_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+        delivery_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        
+        def save_order():
+            supplier = supplier_var.get()
+            product = product_var.get()
+            
+            if not supplier or not product:
+                messagebox.showerror("Ошибка", "Выберите поставщика и товар")
+                return
+            
+            try:
+                supplier_id = int(supplier.split(":")[0])
+                product_id = int(product.split(":")[0])
+                quantity = int(qty_entry.get())
+                price = float(price_entry.get())
+                delivery_date = delivery_entry.get()
+                
+                if quantity <= 0:
+                    messagebox.showerror("Ошибка", "Количество должно быть больше 0")
+                    return
+                
+                cursor = self.db.cursor()
+                query = """
+                INSERT INTO Товар_поставщик 
+                (Код_поставщика, Код_товара, Цена_закупки, Количество) 
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                Цена_закупки = VALUES(Цена_закупки),
+                Количество = Количество + VALUES(Количество)
+                """
+                cursor.execute(query, (supplier_id, product_id, price, quantity))
+                
+                # Обновляем количество товара на складе
+                query = "UPDATE Товар SET Количество = Количество + %s WHERE Код_товара = %s"
+                cursor.execute(query, (quantity, product_id))
+                
+                self.db.commit()
+                messagebox.showinfo("Успех", "Заказ поставщику успешно создан")
+                self.update_supplier_orders_list()
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Ошибка", "Некорректные числовые значения")
+            except Error as e:
+                self.db.rollback()
+                messagebox.showerror("Ошибка", f"Не удалось создать заказ: {e}")
+        
+        ttk.Button(dialog, text="Создать заказ", command=save_order).grid(row=5, column=1, padx=5, pady=5, sticky=tk.E)
+
+    def update_supplier_orders_list(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = """
+            SELECT 
+                tp.Код_поставщика,
+                tp.Код_товара,
+                p.Наименование AS Поставщик,
+                t.Наименование AS Товар,
+                tp.Количество,
+                tp.Цена_закупки,
+                tp.Код_поставщика AS ID
+            FROM Товар_поставщик tp
+            JOIN Поставщик p ON tp.Код_поставщика = p.Код_поставщика
+            JOIN Товар t ON tp.Код_товара = t.Код_товара
+            ORDER BY p.Наименование, t.Наименование
+            """
+            cursor.execute(query)
+            
+            # Очистка таблицы
+            for item in self.supplier_orders_tree.get_children():
+                self.supplier_orders_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.supplier_orders_tree.insert("", tk.END, values=(
+                    f"{row['Код_поставщика']}-{row['Код_товара']}",
+                    row['Поставщик'],
+                    row['Товар'],
+                    row['Количество'],
+                    row['Цена_закупки'],
+                    "-",  # Дата (можно добавить в таблицу Товар_поставщик)
+                    "Активен"  # Статус (можно добавить в таблицу Товар_поставщик)
+                ))
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список заказов: {e}")
+
+    def get_suppliers_for_combobox(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = "SELECT Код_поставщика, Наименование FROM Поставщик ORDER BY Наименование"
+            cursor.execute(query)
+            return [f"{row['Код_поставщика']}: {row['Наименование']}" for row in cursor.fetchall()]
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список поставщиков: {e}")
+            return []
+
+    def get_clients_for_combobox(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = "SELECT Код_клиента, ФИО FROM Клиент ORDER BY ФИО"
+            cursor.execute(query)
+            return [f"{row['Код_клиента']}: {row['ФИО']}" for row in cursor.fetchall()]
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список клиентов: {e}")
+            return []
+
+    def get_products_for_combobox(self):
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            query = "SELECT Код_товара, Наименование FROM Товар ORDER BY Наименование"
+            cursor.execute(query)
+            return [f"{row['Код_товара']}: {row['Наименование']}" for row in cursor.fetchall()]
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить список товаров: {e}")
+            return []
+
+    def update_reports(self):
+        start_date = self.start_date_entry.get()
+        end_date = self.end_date_entry.get()
+        report_type = self.report_type_var.get()
+        
+        try:
+            cursor = self.db.cursor(dictionary=True)
+            
+            # 1. Финансовый отчет (доходы, расходы, прибыль)
+            if report_type == "monthly":
+                query = """
+                SELECT 
+                    DATE_FORMAT(Период, '%Y-%m') AS Period,
+                    SUM(Общий_доход) AS Income,
+                    SUM(Общий_расход) AS Expenses,
+                    SUM(Чистая_прибыль) AS Profit
+                FROM Общая_прибыль
+                WHERE Период BETWEEN %s AND %s
+                GROUP BY DATE_FORMAT(Период, '%Y-%m')
+                ORDER BY Period
+                """
+            else:  # daily
+                query = """
+                SELECT 
+                    Период AS Period,
+                    Общий_доход AS Income,
+                    Общий_расход AS Expenses,
+                    Чистая_прибыль AS Profit
+                FROM Общая_прибыль
+                WHERE Период BETWEEN %s AND %s
+                ORDER BY Период
+                """
+            
+            cursor.execute(query, (start_date, end_date))
+            
+            # Очистка таблицы
+            for item in self.profit_tree.get_children():
+                self.profit_tree.delete(item)
+            
+            # Заполнение данными
+            total_income = 0
+            total_expenses = 0
+            total_profit = 0
+            
+            for row in cursor.fetchall():
+                self.profit_tree.insert("", tk.END, values=(
+                    row['Period'],
+                    f"{row['Income']:.2f}",
+                    f"{row['Expenses']:.2f}",
+                    f"{row['Profit']:.2f}"
+                ))
+                total_income += row['Income'] or 0
+                total_expenses += row['Expenses'] or 0
+                total_profit += row['Profit'] or 0
+            
+            # Добавляем итоговую строку
+            self.profit_tree.insert("", tk.END, values=(
+                "ИТОГО:",
+                f"{total_income:.2f}",
+                f"{total_expenses:.2f}",
+                f"{total_profit:.2f}"
+            ), tags=('total',))
+            self.profit_tree.tag_configure('total', background='#f0f0f0', font=('Arial', 9, 'bold'))
+            
+            # 2. Топ товаров
+            query = """
+            SELECT 
+                t.Наименование AS Product,
+                SUM(tc.Количество) AS Sales,
+                SUM(tc.Цена_продажи * tc.Количество) AS Revenue
+            FROM Товар_клиента tc
+            JOIN Товар t ON tc.Код_товара = t.Код_товара
+            WHERE tc.Дата_продажи BETWEEN %s AND %s
+            GROUP BY t.Код_товара, t.Наименование
+            ORDER BY Revenue DESC
+            LIMIT 10
+            """
+            cursor.execute(query, (start_date, end_date))
+            
+            # Очистка таблицы
+            for item in self.top_products_tree.get_children():
+                self.top_products_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.top_products_tree.insert("", tk.END, values=(
+                    row['Product'],
+                    row['Sales'],
+                    f"{row['Revenue']:.2f}"
+                ))
+            
+            # 3. Топ услуг
+            query = """
+            SELECT 
+                u.Название AS Service,
+                SUM(uc.Количество) AS Sales,
+                SUM(u.Цена * uc.Количество) AS Revenue
+            FROM Услуга_клиенту uc
+            JOIN Услуга u ON uc.Код_услуги = u.Код_услуги
+            WHERE uc.Дата_оказания BETWEEN %s AND %s
+            GROUP BY u.Код_услуги, u.Название
+            ORDER BY Revenue DESC
+            LIMIT 10
+            """
+            cursor.execute(query, (start_date, end_date))
+            
+            # Очистка таблицы
+            for item in self.top_services_tree.get_children():
+                self.top_services_tree.delete(item)
+            
+            # Заполнение данными
+            for row in cursor.fetchall():
+                self.top_services_tree.insert("", tk.END, values=(
+                    row['Service'],
+                    row['Sales'],
+                    f"{row['Revenue']:.2f}"
+                ))
+                
+        except Error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить отчеты: {e}")
+        
+   
+
+
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = FlowerShopApp(root)
+    root.mainloop()
