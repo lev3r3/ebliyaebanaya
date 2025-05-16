@@ -3,41 +3,98 @@ from mysql.connector import Error
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-
+class LoginWindow:
+    def __init__(self, root, on_login_success):
+        self.root = root
+        self.on_login_success = on_login_success
+        self.window = tk.Toplevel(root)
+        self.window.title("Авторизация")
+        self.window.geometry("300x200")
+        
+        ttk.Label(self.window, text="Логин:").pack(pady=5)
+        self.username_entry = ttk.Entry(self.window)
+        self.username_entry.pack(pady=5)
+        
+        ttk.Label(self.window, text="Пароль:").pack(pady=5)
+        self.password_entry = ttk.Entry(self.window, show="*")
+        self.password_entry.pack(pady=5)
+        
+        ttk.Button(self.window, text="Войти", command=self.authenticate).pack(pady=10)
+        
+        # Список пользователей (в реальном приложении это должно храниться в БД)
+        self.users = {
+            "Владелец": {"password": "password", "role": "owner"},
+            "Администратор": {"password": "password", "role": "admin"}
+        }
+    
+    def authenticate(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        
+        if username in self.users and self.users[username]["password"] == password:
+            self.on_login_success(self.users[username]["role"])
+            self.window.destroy()
+        else:
+            messagebox.showerror("Ошибка", "Неверный логин или пароль")
 class FlowerShopApp:
     def __init__(self, root):
         self.root = root
         self.root.title("PolarFlowers - Управление цветочным магазином")
         self.root.geometry("1200x800")
         
-        # Подключение к базе данных
-        self.db = self.connect_to_db()
+        # Показываем окно авторизации
+        self.current_user_role = None
+        self.show_login_window()
+    
+    def show_login_window(self):
+        self.login_window = LoginWindow(self.root, self.on_login_success)
+    
+    def on_login_success(self, role):
+        self.current_user_role = role
+        self.initialize_app()
+    
+    def initialize_app(self):
+        
+        # Подключение к базе данных с разными учетными данными в зависимости от роли
+        if self.current_user_role == "owner":
+            self.db = self.connect_to_db(user='Владелец', password='password')
+        else:  # admin
+            self.db = self.connect_to_db(user='Администратор', password='password')
         
         # Создание вкладок
-        self.notebook = ttk.Notebook(root)
+        self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
-        # Вкладки
-        self.create_clients_tab()
-        self.create_products_tab()
-        self.create_services_tab()
-        self.create_orders_tab()
-        self.create_sales_tab()
-        self.create_reports_tab()
-        self.create_suppliers_tab()          # Новая вкладка
-        self.create_supplier_orders_tab()    # Новая вкладка
+        # В зависимости от роли показываем разные вкладки
+        if self.current_user_role == "admin":
+            # Администратор видит все вкладки
+            self.create_clients_tab()
+            self.create_products_tab()
+            self.create_services_tab()
+            self.create_orders_tab()
+            self.create_sales_tab()
+            self.create_suppliers_tab()
+            self.create_supplier_orders_tab()
+            self.create_reports_tab()
+        else:
+            # Владелец видит только отчеты
+            self.create_reports_tab()
+        
         # Обновление данных при запуске
-        self.update_clients_list()
-        self.update_products_list()
-        self.update_services_list()
-        self.update_orders_list()
+        if self.current_user_role == "admin":
+            self.update_clients_list()
+            self.update_products_list()
+            self.update_services_list()
+            self.update_orders_list()
+            self.update_suppliers_list()
+            self.update_supplier_orders_list()
     
-    def connect_to_db(self):
+    def connect_to_db(self, user='root', password='0000'):
         try:
             connection = mysql.connector.connect(
                 host='localhost',
-                user='root',
-                password='0000',
+                user=user,
+                password=password,
                 database='PolarFlowers51'
             )
             return connection
@@ -91,6 +148,10 @@ class FlowerShopApp:
         self.clients_tree.bind("<Button-3>", self.show_clients_context_menu)
     
     def delete_client(self):
+        if self.current_user_role != "admin":
+            messagebox.showwarning("Ограничение", "Только администратор может удалять клиентов")
+            return
+        
         selected = self.clients_tree.focus()
         if not selected:
             messagebox.showwarning("Предупреждение", "Выберите клиента для удаления")
@@ -448,10 +509,15 @@ class FlowerShopApp:
         ttk.Button(dialog, text="Сохранить", command=save_product).grid(row=5, column=1, padx=5, pady=5, sticky=tk.E)
     
     def delete_product(self):
+        if self.current_user_role != "admin":
+            messagebox.showwarning("Ограничение", "Только администратор может удалять товары")
+            return
+        
         selected = self.products_tree.focus()
         if not selected:
             messagebox.showwarning("Предупреждение", "Выберите товар для удаления")
             return
+        
         
         product_id = self.products_tree.item(selected)['values'][0]
         product_name = self.products_tree.item(selected)['values'][1]
@@ -1605,42 +1671,68 @@ class FlowerShopApp:
         self.profit_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Топ товаров и услуг
-        notebook = ttk.Notebook(tab)
-        notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Топ товаров и услуг (только для владельца)
+        if self.current_user_role == "owner":
+            notebook = ttk.Notebook(tab)
+            notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            
+            # Топ товаров
+            products_frame = ttk.Frame(notebook)
+            notebook.add(products_frame, text="Топ товаров")
+            
+            self.top_products_tree = ttk.Treeview(products_frame, columns=("Product", "Sales", "Revenue"), show="headings")
+            self.top_products_tree.heading("Product", text="Товар")
+            self.top_products_tree.heading("Sales", text="Продано")
+            self.top_products_tree.heading("Revenue", text="Выручка")
+            
+            scrollbar = ttk.Scrollbar(products_frame, orient="vertical", command=self.top_products_tree.yview)
+            self.top_products_tree.configure(yscrollcommand=scrollbar.set)
+            
+            self.top_products_tree.pack(fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Топ услуг
+            services_frame = ttk.Frame(notebook)
+            notebook.add(services_frame, text="Топ услуг")
+            
+            self.top_services_tree = ttk.Treeview(services_frame, columns=("Service", "Sales", "Revenue"), show="headings")
+            self.top_services_tree.heading("Service", text="Услуга")
+            self.top_services_tree.heading("Sales", text="Оказано")
+            self.top_services_tree.heading("Revenue", text="Выручка")
+            
+            scrollbar = ttk.Scrollbar(services_frame, orient="vertical", command=self.top_services_tree.yview)
+            self.top_services_tree.configure(yscrollcommand=scrollbar.set)
+            
+            self.top_services_tree.pack(fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Топ товаров
-        products_frame = ttk.Frame(notebook)
-        notebook.add(products_frame, text="Топ товаров")
+        # Для администратора добавляем только кнопку экспорта
+        else:
+            export_frame = ttk.Frame(tab)
+            export_frame.pack(fill=tk.X, padx=5, pady=5)
+            
+            ttk.Button(export_frame, text="Экспорт отчета", command=self.export_report).pack(side=tk.LEFT, padx=5)
         
-        self.top_products_tree = ttk.Treeview(products_frame, columns=("Product", "Sales", "Revenue"), show="headings")
-        self.top_products_tree.heading("Product", text="Товар")
-        self.top_products_tree.heading("Sales", text="Продано")
-        self.top_products_tree.heading("Revenue", text="Выручка")
-        
-        scrollbar = ttk.Scrollbar(products_frame, orient="vertical", command=self.top_products_tree.yview)
-        self.top_products_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.top_products_tree.pack(fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Топ услуг
-        services_frame = ttk.Frame(notebook)
-        notebook.add(services_frame, text="Топ услуг")
-        
-        self.top_services_tree = ttk.Treeview(services_frame, columns=("Service", "Sales", "Revenue"), show="headings")
-        self.top_services_tree.heading("Service", text="Услуга")
-        self.top_services_tree.heading("Sales", text="Оказано")
-        self.top_services_tree.heading("Revenue", text="Выручка")
-        
-        scrollbar = ttk.Scrollbar(services_frame, orient="vertical", command=self.top_services_tree.yview)
-        self.top_services_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.top_services_tree.pack(fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Обновляем отчеты при открытии
+        # Обновляем отчеты при открытии вкладки
         self.update_reports()
+
+    def export_report(self):
+        # Простая реализация экспорта отчета
+        try:
+            filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            with open(filename, 'w', encoding='utf-8') as f:
+                # Заголовки
+                f.write("Период;Доход;Расход;Прибыль\n")
+                
+                # Данные
+                for item in self.profit_tree.get_children():
+                    values = self.profit_tree.item(item)['values']
+                    f.write(";".join(map(str, values)))
+                    f.write("\n")
+            
+            messagebox.showinfo("Успех", f"Отчет успешно экспортирован в файл: {filename}")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось экспортировать отчет: {e}")
     
     def show_suppliers_context_menu(self, event):
         item = self.suppliers_tree.identify_row(event.y)
